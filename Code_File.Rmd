@@ -1,0 +1,210 @@
+---
+title: "Untitled"
+author: Shivani Grover, Anish Nitin Somaiah
+date: "June 26, 2019"
+output: pdf_document
+---
+
+```
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+#libraries and loading files
+```{r}
+library('dplyr')
+library('xgboost')
+library('tidyverse')
+library('Metrics')
+library('ggplot2')
+library('gridExtra')
+library('grid')
+library('corrplot')
+
+setwd("C:/Users/anish/Downloads/Predictive Analytics/Final project/champs-scalar-coupling")
+train <- read.csv("train.csv") 
+test <- read.csv("test.csv" )
+dipole <- read.csv("dipole_moments.csv")
+structure <- read.csv("structures.csv")
+potential <- read.csv("potential_energy.csv")
+muliken <- read.csv("mulliken_charges.csv")
+```
+
+
+# Data Preparation
+```{r}
+sc <- train$scalar_coupling_constant
+train$scalar_coupling_constant <- NULL
+
+full <- rbind(train,test) %>% 
+  left_join(structure, by = c("molecule_name","atom_index_0" = "atom_index")) %>% 
+  left_join(structure, by = c("molecule_name","atom_index_1" = "atom_index")) %>%
+  mutate(
+    x_dist = x.x - x.y, 
+    y_dist = y.x - y.y,  
+    z_dist = z.x - z.y, 
+    dist = x_dist^2 + y_dist^2 + z_dist^2) #%>% 
+  #select(-id, -atom.x, -atom.y) 
+names(full) <- c("id", "molecule_name","atom_index_0", "atom_index_1", "joint_type","atom_0","x_0", "y_0", "z_0", "atom_1",
+                  "x_1","y_1","z_1", "x_dist","y_dist", "z_dist","distance")
+
+train_f <- full[1:nrow(train),c("molecule_name","atom_index_0","atom_index_1","joint_type","distance")]
+train_f$scalar_coupling_constant <- as.vector(sc)
+```
+
+#EDA on files
+```{r}
+summary(train)
+summary(test)
+summary(structure)
+```
+
+## EDA on scalar coupling constant
+
+```{r }
+#Histogram
+ggplot(train_f, aes(x = scalar_coupling_constant)) +
+  geom_histogram(color = "black", fill = "orange") + ggtitle("Frequency Histogram of Scalar Coupling Constant")
+
+#Bar Plot
+s1 <- nrow(subset(train_f,train_f$scalar_coupling_constant<0))
+s2 <- nrow(subset(train_f,train_f$scalar_coupling_constant>0))
+df <- data.frame(Orientation=c("Opposite spin","Same spin"),
+                 Molecule_count=c(s2,s1))
+ggplot(data=df, aes(x=Orientation, y=Molecule_count,fill=Orientation)) +
+  geom_bar(stat="identity") + ggtitle("Atomic Orientation Distribution") 
+```
+
+#Correlation Plots
+```{r}
+train1 <- full[1:nrow(train),c("molecule_name","atom_index_0","atom_index_1","joint_type",
+                                "distance")]
+train1$scalar_coupling_constant <- as.numeric(sc)
+train2 <- train1[, c("atom_index_0", "atom_index_1","distance", "scalar_coupling_constant")]
+
+dipole$diople_moment <- sqrt(dipole$X^2 + dipole$Y^2 + dipole$Z^2) 
+tr_dip <- train1 %>%
+  left_join(dipole, by = c("molecule_name"))%>%
+  left_join(potential, by = "molecule_name")%>%
+  left_join(muliken, by = c("molecule_name", "atom_index_0" = "atom_index"))%>%
+  left_join(muliken, by = c("molecule_name", "atom_index_1" = "atom_index"))
+names(tr_dip) <-c ("molecule_name","atom_index_0","atom_index_1", "joint_type","distance", 
+                      "coupling_const", "X", "Y", "Z", "dipole", 
+                      "potential", "mulliken0", "mulliken1")
+c <- tr_dip[, c("atom_index_0", "atom_index_1", "distance", "coupling_const",
+                "dipole", "potential", "mulliken0", "mulliken1")]
+
+d <- na.omit(c) 
+M <- cor(d)
+corrplot.mixed(M, lower.col ="black", number.cex=0.9, upper = "circle")
+```
+
+#Grid Plot for each joint type
+```{r}
+p1 <- ggplot(filter(train_f, joint_type == "1JHC"), aes(x = scalar_coupling_constant)) +
+      geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "skyblue",
+            linetype = "solid") +
+      labs(x="Type = 1JHC")
+
+p2 <- ggplot(filter(train_f, joint_type == "2JHC"), aes(x = scalar_coupling_constant)) +
+  geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "lightgreen",
+            linetype = "solid") +
+  labs(x="Type = 2JHC")
+
+
+p3 <- ggplot(filter(train_f, joint_type == "3JHC"), aes(x = scalar_coupling_constant)) +
+  geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "orange",
+            linetype = "solid") +
+  labs(x="Type = 3JHC")
+
+p4 <- ggplot(filter(train_f, joint_type == "2JHH"), aes(x = scalar_coupling_constant)) +
+  geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "red",
+            linetype = "solid") +
+  labs(x="Type = 2JHH")
+
+
+p5 <- ggplot(filter(train_f, joint_type == "3JHH"), aes(x = scalar_coupling_constant)) +
+  geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "yellow",
+            linetype = "solid") +
+  labs(x="Type = 3JHH")
+
+
+p6 <- ggplot(filter(train_f, joint_type == "3JHN"), aes(x = scalar_coupling_constant)) +
+  geom_area(stat = "bin", 
+            binwidth = 0.5, 
+            colour = "black",
+            fill = "purple",
+            linetype = "solid") +
+  labs(x="Type = 3JHN")
+
+grid.arrange(p1,p2,p3,p4,p5,p6, ncol=3,
+             top = textGrob("Distribution of Coupling Constant by Type",gp=gpar(fontsize=15)))
+```
+
+
+```{r}
+reg <- lm(scalar_coupling_constant~ distance + joint_type , data = train_f)
+summary(reg)
+test1 <- full[(nrow(train)+1):nrow(full),]
+test1$predlm <- predict(reg, newdata = test1)
+```
+
+#Extreme Gradient Boosting
+```{r}
+train1 <- xgb.DMatrix(data = as.matrix(train_f[, c("distance")]), label = train_f$scalar_coupling_constant)
+test2 <- xgb.DMatrix(data = as.matrix(test1[, c("distance")]))
+xgb_params <- list("objective" = "reg:linear",
+                   "eval_metric" = "mae"
+                   )
+
+model <- xgb.train(params = xgb_params,
+                   data = train1,
+                   eta = 0.5,
+                   nrounds = 100,
+                   max_depth = 2,
+                   subsample = 0.9,
+                   colsample_bytree = 1)
+
+
+predictionxgb <- predict(model, newdata = test2)
+```
+
+#Error Calculations
+```{r}
+mae <- function(error)
+{
+  mean(abs(error))
+}
+log(mae(test1$predlm-train_f$scalar_coupling_constant))
+log(mae(predictionxgb-train_f$scalar_coupling_constant))
+
+```
+
+#Final Predictions
+```{r}
+
+final <- test1$molecule_name
+final <- cbind(final,test1$predlm)
+final <- cbind(final,predictionxgb)
+head(final)
+```
+
